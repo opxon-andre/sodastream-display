@@ -20,7 +20,8 @@
 #define SCROLL_DURATION 600
 #define HOLD_TIME 3000
 #define RESTART_TIME 10000
-#define CONFIRM_TIMEOUT 2000
+#define CONFIRM_TIMEOUT 4000
+#define CYLINDER_CONFIRM_TIMEOUT 5000
 #define DISPLAY_TIMEOUT 120000
 
 // --------------- WLAN ---------------
@@ -69,6 +70,9 @@ unsigned long statsStartTime = 0;
 
 bool confirmResetActive = false;
 unsigned long confirmResetStart = 0;
+
+bool confirmCylinderActive = false;
+unsigned long confirmCylinderStart = 0;
 
 bool displayOff = false;
 unsigned long lastActivity = 0;
@@ -281,6 +285,32 @@ void drawDisplay(int remainingUses, int remainingDays, int avgPerDay){
     return;
   }
 
+  // --- Zylinder-Bestätigung: CO₂ + "Klick -> OK" + Countdown-Bar ---
+  if(confirmCylinderActive){
+    float progress = 1.0f - (float)(millis() - confirmCylinderStart) / (float)CYLINDER_CONFIRM_TIMEOUT;
+    if(progress < 0) progress = 0;
+    int barHeight = (int)(64.0f * progress);
+    u8g2.drawBox(124, 64 - barHeight, 4, barHeight);
+
+    u8g2.setFont(u8g2_font_logisoso24_tf);
+    int coWidth = u8g2.getStrWidth("CO");
+    u8g2.setFont(u8g2_font_6x12_tf);
+    int twoWidth = u8g2.getStrWidth("2");
+    int startX = (128 - coWidth - twoWidth) / 2;
+
+    u8g2.setFont(u8g2_font_logisoso24_tf);
+    u8g2.drawStr(startX, 22, "CO");
+    u8g2.setFont(u8g2_font_6x12_tf);
+    u8g2.drawStr(startX + coWidth, 26, "2");
+
+    int w = u8g2.getStrWidth("ausgetauscht?");
+    u8g2.drawStr((128-w)/2, 38, "ausgetauscht?");
+    w = u8g2.getStrWidth("Klick -> OK");
+    u8g2.drawStr((128-w)/2, 54, "Klick -> OK");
+    u8g2.sendBuffer();
+    return;
+  }
+
   // --- Taste 3s–10s gehalten: "CO₂ ausgetauscht?" ---
   if(buttonPressed && held >= (unsigned long)HOLD_TIME){
     // "CO" groß, "2" tiefgestellt
@@ -442,6 +472,11 @@ void handleButton(){
       displayOff = false;
       u8g2.setPowerSave(0);
     }
+    if(confirmCylinderActive){
+      confirmCylinderActive = false;
+      handleReset();
+      return;
+    }
     if(confirmResetActive){
       confirmResetActive = false;
       handleFactoryReset();
@@ -459,21 +494,25 @@ void handleButton(){
     buttonPressed = false;
     lastActivity = millis();
 
-    if(pressStartedWithDisplayOff && held < (unsigned long)WAKE_TIME){
-      return; // Display wurde nur geweckt, keine weitere Aktion
+    if(held < (unsigned long)WAKE_TIME){
+      return; // Zu kurz: nur Display geweckt, keine weitere Aktion
     }
 
     if(held >= (unsigned long)RESTART_TIME){
       confirmResetActive = true;
       confirmResetStart = millis();
     } else if(held >= (unsigned long)HOLD_TIME){
-      handleReset();
+      confirmCylinderActive = true;
+      confirmCylinderStart = millis();
     } else {
       handleIncrement();
     }
   }
 
-  // Bestätigungs-Timeout
+  // Bestätigungs-Timeouts
+  if(confirmCylinderActive && millis() - confirmCylinderStart >= (unsigned long)CYLINDER_CONFIRM_TIMEOUT){
+    confirmCylinderActive = false;
+  }
   if(confirmResetActive && millis() - confirmResetStart >= (unsigned long)CONFIRM_TIMEOUT){
     confirmResetActive = false;
   }
