@@ -17,6 +17,7 @@
 // ---------------- PIN ----------------
 #define BTN_PIN 0   // D3 (GPIO0)
 #define WAKE_TIME 500
+#define SCROLL_DURATION 600
 #define HOLD_TIME 3000
 #define RESTART_TIME 10000
 #define CONFIRM_TIMEOUT 2000
@@ -222,6 +223,31 @@ void bubbleAnimation() {
   }
 }
 
+// Rendert "zzzisch" mit progressiv größer werdenden Buchstaben.
+// draw=false: nur Breite messen. Gibt Gesamtbreite zurück.
+int renderZzzisch(int startX, bool draw) {
+  const uint8_t* fonts[] = {
+    u8g2_font_6x12_tf,
+    u8g2_font_6x12_tf,
+    u8g2_font_8x13_tf,
+    u8g2_font_10x20_tf,
+    u8g2_font_logisoso16_tf,
+    u8g2_font_logisoso20_tf,
+    u8g2_font_logisoso24_tf
+  };
+  const char letters[] = {'z','z','z','i','s','c','h'};
+  const int baseline = 52;
+  char buf[2] = {0, 0};
+  int x = startX;
+  for(int i = 0; i < 7; i++){
+    u8g2.setFont(fonts[i]);
+    buf[0] = letters[i];
+    if(draw) u8g2.drawStr(x, baseline, buf);
+    x += u8g2.getStrWidth(buf) + 1;
+  }
+  return x - startX;
+}
+
 void drawDisplay(int remainingUses, int remainingDays, int avgPerDay){
   u8g2.clearBuffer();
   unsigned long held = buttonPressed ? millis() - pressStart : 0;
@@ -271,6 +297,24 @@ void drawDisplay(int remainingUses, int remainingDays, int avgPerDay){
 
     int w = u8g2.getStrWidth("ausgetauscht?");
     u8g2.drawStr((128-w)/2, 46, "ausgetauscht?");
+    u8g2.sendBuffer();
+    return;
+  }
+
+  // --- Taste 0,5s–3s gehalten: "zzzisch" Einroll-Animation + Blinken ---
+  if(buttonPressed && held >= (unsigned long)WAKE_TIME && held < (unsigned long)HOLD_TIME){
+    int totalWidth = renderZzzisch(0, false);
+    int targetX = (128 - totalWidth) / 2;
+    unsigned long animTime = held - WAKE_TIME;
+
+    if(animTime < (unsigned long)SCROLL_DURATION){
+      float progress = (float)animTime / (float)SCROLL_DURATION;
+      int currentX = 128 - (int)((128 - targetX) * progress);
+      renderZzzisch(currentX, true);
+    } else {
+      bool visible = ((animTime - SCROLL_DURATION) / 200) % 2 == 0;
+      if(visible) renderZzzisch(targetX, true);
+    }
     u8g2.sendBuffer();
     return;
   }
